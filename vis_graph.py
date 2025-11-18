@@ -1,6 +1,10 @@
+# vis_graph.py
 import math
 import matplotlib.pyplot as plt
 import networkx as nx
+import os
+import numpy as np
+
 
 def draw_graph(G: nx.DiGraph, out_path: str = "graph.png"):
     """
@@ -40,4 +44,42 @@ def draw_graph(G: nx.DiGraph, out_path: str = "graph.png"):
     print(f"[DRAW] Saved graph visualization to {out_path}")
 
     # always show
+    plt.show()
+
+def plot_degree_loglog(G: nx.DiGraph, out_path: str = "degree_loglog.png"):
+    """
+    Plot the degree distribution on log–log axes, with a smooth line like the sample figure.
+    """
+    import numpy as np
+    import matplotlib.pyplot as plt
+
+    if G.number_of_nodes() == 0:
+        print("[LOGLOG] Graph is empty; nothing to plot.")
+        return
+
+    # total degree per node (in + out)
+    degs = np.array([G.in_degree(n) + G.out_degree(n) for n in G.nodes()])
+    unique, counts = np.unique(degs, return_counts=True)
+
+    # remove degree 0 entries (can't show log(0))
+    mask = unique > 0
+    unique = unique[mask]
+    counts = counts[mask]
+
+    if len(unique) == 0:
+        print("[LOGLOG] No positive degrees; nothing to plot.")
+        return
+
+    plt.figure(figsize=(8, 6))
+
+    # use a connected line instead of scattered dots
+    plt.loglog(unique, counts, marker="", linestyle="-", linewidth=1.2)
+
+    plt.xlabel("degree (log)")
+    plt.ylabel("number of nodes (log)")
+    plt.title("LogLog Plot")
+    plt.grid(True, which="both", linestyle="--", linewidth=0.5)
+    plt.tight_layout()
+    plt.savefig(out_path, dpi=200)
+    print(f"[LOGLOG] Saved degree log–log plot to {out_path}")
     plt.show()
