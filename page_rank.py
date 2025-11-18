@@ -2,6 +2,7 @@ import networkx as nx
 import argparse
 import matplotlib.pyplot as plt
 from web_crawler import  crawl_to_gml
+from vis_graph import draw_graph
 
 # File Handeling Funcitons
 # ====================================================================================================
@@ -113,14 +114,32 @@ def main():
     parser = build_parser()
     args = parser.parse_args()
     
+    # make sure user calls crawler or input but not both
+    if args.crawler and args.input:
+        parser.error("You cannot use --crawler and --input at the same time. Choose one.")
+
+    if not args.crawler and not args.input:
+        parser.error("You must provide either --crawler <txt> or --input <gml>.")
+        
+    # initialize G
+    G = nx.DiGraph()
+    
     if args.crawler:
         out_gml = args.crawler_graph or "out_graph.gml"
         print(f"[CRAWL] reading seeds from {args.crawler}")
         print(f"[CRAWL] output GML -> {out_gml}")
         crawl_to_gml(args.crawler, out_gml)
         print("[CRAWL] done.")
+        
+        # load the newly created graph for use (PageRank, plotting, etc.)
+        G = load_gml(out_gml)
+        
     if args.input:
-        test_input(args.input)
+        G = load_gml(args.input)
+        print(f"[INPUT] Loaded {args.input}: {G.number_of_nodes()} nodes, {G.number_of_edges()} edges")
+        
+    draw_graph(G, out_path="graph.png")
+        
     if args.loglogplot:
         test_loglogplot(args.loglogplot)
     if args.crawler_graph:
