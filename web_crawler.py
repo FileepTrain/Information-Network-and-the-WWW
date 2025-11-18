@@ -188,3 +188,4 @@ def crawl_to_gml(crawler_txt: str, out_gml: str):
                   max_nodes=n,
                   out_gml=out_gml)
     process.start()
+
