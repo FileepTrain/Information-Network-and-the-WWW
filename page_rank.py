@@ -1,39 +1,57 @@
 import networkx as nx
 import argparse
 import matplotlib.pyplot as plt
+from web_crawler import  crawl_to_gml
 
 # File Handeling Funcitons
 # ====================================================================================================
-"""To take in a graph .gml file, and check that the input ID values are ints
-Input: either a local file with just the name, or the file's entire path
-Output: the graph that corresponds to the the file name
-"""
+def load_initial_pages(path: str):
+    """
+    Expectedpyth format:
+      n
+      domain
+      webpage_1
+      ...
+      webpage_n
+    Returns: (n:int, domain:str, pages:list[str])
+    """
+    with open(path, "r", encoding="utf-8") as f:
+        lines = [ln.strip() for ln in f if ln.strip()]
+
+    n = int(lines[0])
+    domain = lines[1]
+    pages = lines[2:2 + n]
+    return n, domain, pages
+
 def load_gml(path: str):
+    """To take in a graph .gml file, and check that the input ID values are ints
+    Input: either a local file with just the name, or the file's entire path
+    Output: the graph that corresponds to the the file name
+    """
     try:
         G = nx.read_gml(path)
     except Exception as e:
         raise nx.NetworkXError(f"Failed to read GML file: {e}")
     
+    # ensure directed
+    if not isinstance(G, nx.DiGraph):
+        G = nx.DiGraph(G)
+    
     #Normalize node labels to strings
     G = nx.relabel_nodes(G, lambda n: str(n), copy=True)
     
-    #Check node attributes
-    for node, data in G.nodes(data=True):
-        for key, value in data.items():
-            try:
-                int(value)
-            except Exception:
-                raise nx.NetworkXError(f"Node {node} has non-numeric attribute '{key}': {value}")
-            
-    #Check edge attributes
-    for u, v, data in G.edges(data=True):
-        for key, value in data.items():
-            try:
-                int(value)
-            except Exception:
-                raise nx.NetworkXError(f"Edge ({u},{v}) has non-numeric attribute '{key}': {value}")
+    if G.number_of_nodes() == 0:
+        raise nx.NetworkXError("Graph has no nodes.")
+    if G.number_of_edges() == 0:
+        print("[WARN] Graph has no edges.")
             
     return G
+
+def export_gml(G: nx.DiGraph, path: str) -> None:
+    """
+    Writes a graph to .gml.
+    """
+    nx.write_gml(G, path)
 
 # Test Functions
 # ====================================================================================================
@@ -94,9 +112,13 @@ ensuring that the input .gml file is properly made, the node ids are digits and 
 def main():
     parser = build_parser()
     args = parser.parse_args()
-
+    
     if args.crawler:
-        test_crawler(args.crawler)
+        out_gml = args.crawler_graph or "out_graph.gml"
+        print(f"[CRAWL] reading seeds from {args.crawler}")
+        print(f"[CRAWL] output GML -> {out_gml}")
+        crawl_to_gml(args.crawler, out_gml)
+        print("[CRAWL] done.")
     if args.input:
         test_input(args.input)
     if args.loglogplot:
