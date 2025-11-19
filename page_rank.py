@@ -24,7 +24,8 @@ def load_gml(path: str):
     G = nx.relabel_nodes(G, lambda n: str(n), copy=True)
     
     if G.number_of_nodes() == 0:
-        raise nx.NetworkXError("Graph has no nodes.")
+        raise nx.NetworkXError("[ERROR] The crawl completed but returned no nodes. \nThis usually means network timeout, domain blocking, or invalid seed URLs. \nTry rerunning later or check your internet connection.")
+
     if G.number_of_edges() == 0:
         print("[WARN] Graph has no edges.")
             
