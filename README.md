@@ -15,7 +15,17 @@ This program works by creating a graph of the internet using Python and applying
 
 
 ## Sample Command-Line Usage
-    python page_rank.py --crawler crawler.txt
-![Program Output](images/fin_term.png)
+    python page_rank.py --crawler crawler.txt --loglogplot --crawler_graph graph.gml --pagerank_values node_rank.txt
+
+![Program Output](degree_loglog.png)
+        Also check out the files crawler.txt for a sample input, and graph.gml and node_rank.txt for the output gml file and page rank text respectively.
 
     python page_rank.py --input graph.gml
+        This is the prompt that analyzes the input graph.
+
+## Explaination of Approach
+--crawler/input: After analyzing the input txt or .gml file, we use a crawler from the Scrapy library to do a Breadth First Search of the starting/given websites.
+
+--loglogplot: As mentioned in the slides, the in- and out-degree distributions align with the power laws (y = x^-alpha). By using a log-log plot, it shows a strong correlation between the number of pages and the in-degree (as een in the slides).
+
+--pagerank_values: This mirrors the hub/authority activities we did in class. Since a computer does this much faster than a human, it can continue to normalize the score until it stabalizes to around a specific number.
