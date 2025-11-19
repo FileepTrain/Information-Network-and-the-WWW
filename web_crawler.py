@@ -4,11 +4,15 @@ from scrapy.crawler import CrawlerProcess
 from scrapy.exceptions import CloseSpider
 import scrapy
 import networkx as nx
+import sys
+from collections import OrderedDict
+
 
 def normalize_domain(domain_line: str) -> str:
     """Accepts 'dblp.org' OR 'https://dblp.org/pid' and returns 'dblp.org'."""
     parsed = urlparse(domain_line)
     return (parsed.netloc or domain_line).lower().strip()
+
 
 def read_txt_crawler(path: str):
     with open(path, "r", encoding="utf-8") as f:
@@ -18,6 +22,7 @@ def read_txt_crawler(path: str):
     domain = normalize_domain(domain_raw)
     pages = lines[2:2 + n]
     return n, domain, pages
+
 
 class DomainSpider(scrapy.Spider):
     name = "domain_spider"
@@ -172,6 +177,10 @@ class DomainSpider(scrapy.Spider):
             if not self.same_domain(abs_url):
                 continue
 
+            # *** Only follow links that end with ".html" (matches the example) ***
+            if not abs_url.lower().endswith(".html"):
+                continue
+
             dst = self.canon(abs_url)
             self.edges.add((src, dst))
 
@@ -188,7 +197,7 @@ class DomainSpider(scrapy.Spider):
         print()
 
         # Prioritize seeds, then first-seen order, capped at max_nodes
-        ordered = list(dict.fromkeys(list(self.seed_nodes) + self.visit_order))[:self.max_nodes]
+        ordered = list(OrderedDict.fromkeys(list(self.seed_nodes) + self.visit_order))[:self.max_nodes]
         keep_nodes = set(ordered)
 
         # keep edges only among kept nodes and not self-loops
@@ -210,7 +219,6 @@ class DomainSpider(scrapy.Spider):
             f"Visited={len(self.visited)}, RawEdges={len(self.edges)}, KeptEdges={len(edges_kept)}"
         )
 
-        
 
 def crawl_to_gml(crawler_txt: str, out_gml: str):
     n, domain, pages = read_txt_crawler(crawler_txt)
@@ -220,7 +228,8 @@ def crawl_to_gml(crawler_txt: str, out_gml: str):
         if not u.startswith("http"):
             u = "https://" + u.lstrip("/")
         # filter to same domain (including subdomains)
-        if not (urlparse(u).netloc.lower() == domain or urlparse(u).netloc.lower().endswith("." + domain)):
+        net = urlparse(u).netloc.lower()
+        if not (net == domain or net.endswith("." + domain)):
             continue
         starts.append(u)
 
@@ -228,10 +237,19 @@ def crawl_to_gml(crawler_txt: str, out_gml: str):
         raise RuntimeError("No valid start URLs inside the specified domain.")
 
     process = CrawlerProcess()
-    process.crawl(DomainSpider,
-                  start_urls=starts,
-                  allowed_domain=domain,
-                  max_nodes=n,
-                  out_gml=out_gml)
+    process.crawl(
+        DomainSpider,
+        start_urls=starts,
+        allowed_domain=domain,
+        max_nodes=n,
+        out_gml=out_gml
+    )
     process.start()
 
+
+# Optional: allow running from CLI like `python web_crawler.py input.txt output.gml`
+if __name__ == "__main__":
+    if len(sys.argv) == 3:
+        crawl_to_gml(sys.argv[1], sys.argv[2])
+    else:
+        print("Usage: python web_crawler.py <crawler.txt> <out.gml>")
