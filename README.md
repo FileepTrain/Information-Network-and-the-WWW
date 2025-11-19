@@ -17,7 +17,8 @@ This program works by creating a graph of the internet using Python and applying
 ## Sample Command-Line Usage
     python page_rank.py --crawler crawler.txt --loglogplot --crawler_graph graph.gml --pagerank_values node_rank.txt
 
-![Program Output](degree_loglog.png)
+![Program Output](degree_loglog.png)    ![Program Output](graph.png)
+The log-log plot                        The visual of the graph
         Also check out the files crawler.txt for a sample input, and graph.gml and node_rank.txt for the output gml file and page rank text respectively.
 
     python page_rank.py --input graph.gml
