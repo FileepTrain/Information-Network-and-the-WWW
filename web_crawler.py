@@ -28,19 +28,26 @@ class DomainSpider(scrapy.Spider):
         # Keep logs quiet
         "LOG_LEVEL": "CRITICAL",
 
-        # Timeouts / retries
-        "DOWNLOAD_TIMEOUT": 7,
-        "RETRY_ENABLED": False,
+        # Timeouts / retries (gentle, but more resilient)
+        "DOWNLOAD_TIMEOUT": 20,            # was 7
+        "RETRY_ENABLED": True,             # was False
+        "RETRY_TIMES": 2,
+        "RETRY_HTTP_CODES": [408, 429, 500, 502, 503, 504, 522, 524],
+        "HTTPERROR_ALLOW_ALL": True,       # give us Response objects for non-200s
 
-        # Max throughput
-        "CONCURRENT_REQUESTS": 64,
-        "CONCURRENT_REQUESTS_PER_DOMAIN": 32,
+        # Throughput + autothrottle (friendlier and reduces flakiness)
+        "CONCURRENT_REQUESTS": 16,         # was 64
+        "CONCURRENT_REQUESTS_PER_DOMAIN": 8,  # was 32
         "REACTOR_THREADPOOL_MAXSIZE": 64,
 
-        # No artificial delays
+        "AUTOTHROTTLE_ENABLED": True,
+        "AUTOTHROTTLE_START_DELAY": 0.1,
+        "AUTOTHROTTLE_MAX_DELAY": 5,
+        "AUTOTHROTTLE_TARGET_CONCURRENCY": 2.0,
+
+        # No artificial delays beyond autothrottle
         "DOWNLOAD_DELAY": 0,
         "RANDOMIZE_DOWNLOAD_DELAY": False,
-        "AUTOTHROTTLE_ENABLED": False,
 
         # Lean requests
         "COOKIES_ENABLED": False,
@@ -68,12 +75,12 @@ class DomainSpider(scrapy.Spider):
             "Accept-Language": "en-US,en;q=0.9",
             "Accept-Encoding": "gzip, deflate, br",
             "Connection": "keep-alive",
-            # Optionally set a UA your class allows; modern UAs often get faster paths
-            "User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
-                        "(KHTML, like Gecko) Chrome/124.0 Safari/537.36",
+            "User-Agent": (
+                "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
+                "(KHTML, like Gecko) Chrome/124.0 Safari/537.36"
+            ),
         },
     }
-
 
     def __init__(self, start_urls, allowed_domain, max_nodes, out_gml, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -84,6 +91,8 @@ class DomainSpider(scrapy.Spider):
         self.visited = set()
         self.visit_order = []    # preserves first-seen order
         self.edges = set()
+        # canonicalized seeds so we can force-keep them later
+        self.seed_nodes = {self.canon(u) for u in start_urls if self.same_domain(u)}
 
     def canon(self, url: str) -> str:
         p = urlparse(url)
@@ -107,23 +116,51 @@ class DomainSpider(scrapy.Spider):
         ctype = response.headers.get(b"Content-Type", b"").decode("utf-8").lower()
         return "text/html" in ctype or "application/xhtml+xml" in ctype
 
-    def parse(self, response):
-        
-        if response.status != 200:
-            return
-        if not self.is_html(response):
-            return
+    def start_requests(self):
+        # Always attach an errback so we can record seeds even on failure/timeout
+        for u in self.start_urls:
+            yield scrapy.Request(
+                u,
+                callback=self.parse,
+                errback=self.on_error,
+                dont_filter=True
+            )
 
-        src = self.canon(response.url)
-        if src in self.visited:
-            return
-
-        self.visited.add(src)
-        self.visit_order.append(src)
+    def on_error(self, failure):
+        """Record the request URL as a node even if the fetch failed."""
+        req = failure.request
+        src = self.canon(req.url)
+        if src not in self.visited:
+            self.visited.add(src)
+            self.visit_order.append(src)
+            pct = 100 * len(self.visited) / self.max_nodes
+            print(f"[CRAWL] {len(self.visited)}/{self.max_nodes} pages ({pct:.1f}%)",
+                  end="\r", flush=True)
 
         # stop immediately if cap reached
         if len(self.visited) >= self.max_nodes:
             raise CloseSpider(reason="max_nodes_reached")
+
+    def parse(self, response):
+        src = self.canon(response.url)
+
+        # mark the page as seen (even for non-200 or non-HTML)
+        if src not in self.visited:
+            self.visited.add(src)
+            self.visit_order.append(src)
+
+        # progress tracker
+        pct = 100 * len(self.visited) / self.max_nodes
+        print(f"[CRAWL] {len(self.visited)}/{self.max_nodes} pages ({pct:.1f}%)",
+              end="\r", flush=True)
+
+        # cap reached?
+        if len(self.visited) >= self.max_nodes:
+            raise CloseSpider(reason="max_nodes_reached")
+
+        # If not OK/HTML, keep the node but don't extract links
+        if response.status != 200 or not self.is_html(response):
+            return
 
         for href in response.css("a::attr(href)").getall():
             if len(self.visited) >= self.max_nodes:
@@ -139,16 +176,24 @@ class DomainSpider(scrapy.Spider):
             self.edges.add((src, dst))
 
             if dst not in self.visited:
-                yield scrapy.Request(abs_url, callback=self.parse, dont_filter=True)
-
+                yield scrapy.Request(
+                    abs_url,
+                    callback=self.parse,
+                    errback=self.on_error,
+                    dont_filter=True
+                )
 
     def closed(self, reason):
-        # respect the first-seen order strictly
-        keep_nodes = set(self.visit_order[:self.max_nodes])
+        # newline so the final message isn't on same line as progress
+        print()
+
+        # Prioritize seeds, then first-seen order, capped at max_nodes
+        ordered = list(dict.fromkeys(list(self.seed_nodes) + self.visit_order))[:self.max_nodes]
+        keep_nodes = set(ordered)
 
         # keep edges only among kept nodes and not self-loops
         edges_kept = [(u, v) for (u, v) in self.edges
-                    if u in keep_nodes and v in keep_nodes and u != v]
+                      if u in keep_nodes and v in keep_nodes and u != v]
 
         G = nx.DiGraph()
         G.add_edges_from(edges_kept)
@@ -164,6 +209,7 @@ class DomainSpider(scrapy.Spider):
             f"({G.number_of_nodes()} nodes, {G.number_of_edges()} edges). "
             f"Visited={len(self.visited)}, RawEdges={len(self.edges)}, KeptEdges={len(edges_kept)}"
         )
+
         
 
 def crawl_to_gml(crawler_txt: str, out_gml: str):
