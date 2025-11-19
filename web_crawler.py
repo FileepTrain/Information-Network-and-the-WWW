@@ -17,7 +17,10 @@ def normalize_domain(domain_line: str) -> str:
 def read_txt_crawler(path: str):
     with open(path, "r", encoding="utf-8") as f:
         lines = [ln.strip() for ln in f if ln.strip()]
-    n = int(lines[0])
+    try:
+        n = int(lines[0])
+    except ValueError:
+        raise RuntimeError("First line of crawler.txt must be an integer (max pages to crawl).")
     domain_raw = lines[1]
     domain = normalize_domain(domain_raw)
     pages = lines[2:2 + n]
